@@ -185,6 +185,14 @@ impl Response {
         self.json().await
     }
 
+    /// Get the response body as bytes
+    pub async fn bytes(self) -> Result<Vec<u8>> {
+        let promise = self.inner.array_buffer().map_err(Error::JsError)?;
+        let array_buffer = JsFuture::from(promise).await?;
+        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
+        Ok(uint8_array.to_vec())
+    }
+
     /// Ensure the response was successful, returning an error if not
     pub fn error_for_status(self) -> Result<Self> {
         if self.ok() {
