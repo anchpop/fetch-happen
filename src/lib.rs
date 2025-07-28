@@ -166,7 +166,7 @@ impl Response {
     }
 
     /// Get the response body as text
-    pub async fn text(self) -> Result<String> {
+    pub async fn text(&self) -> Result<String> {
         let promise = self.inner.text().map_err(Error::JsError)?;
         let text = JsFuture::from(promise).await?;
 
@@ -175,18 +175,18 @@ impl Response {
     }
 
     /// Get the response body as JSON
-    pub async fn json<T: for<'de> Deserialize<'de>>(self) -> Result<T> {
+    pub async fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T> {
         let text = self.text().await?;
         Ok(serde_json::from_str(&text)?)
     }
 
     /// Get the response body as a dynamic JSON value
-    pub async fn json_value(self) -> Result<Value> {
+    pub async fn json_value(&self) -> Result<Value> {
         self.json().await
     }
 
     /// Get the response body as bytes
-    pub async fn bytes(self) -> Result<Vec<u8>> {
+    pub async fn bytes(&self) -> Result<Vec<u8>> {
         let promise = self.inner.array_buffer().map_err(Error::JsError)?;
         let array_buffer = JsFuture::from(promise).await?;
         let uint8_array = js_sys::Uint8Array::new(&array_buffer);
@@ -232,6 +232,11 @@ impl Client {
     /// Make a PATCH request
     pub fn patch(&self, url: impl Into<String>) -> RequestBuilder {
         RequestBuilder::new(Method::PATCH, url)
+    }
+
+    /// Make a HEAD request
+    pub fn head(&self, url: impl Into<String>) -> RequestBuilder {
+        RequestBuilder::new(Method::HEAD, url)
     }
 }
 
