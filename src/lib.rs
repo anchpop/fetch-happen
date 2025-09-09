@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Request as WebRequest, RequestInit, Response as WebResponse};
+use web_sys::{AbortSignal, Request as WebRequest, RequestInit, Response as WebResponse};
 
-pub use web_sys::RequestMode;
+pub use web_sys::{AbortController, RequestMode};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -18,6 +19,8 @@ pub enum Error {
     HttpError(u16, String),
     /// JSON parsing error
     JsonError(String),
+    /// Request was aborted
+    Aborted,
 }
 
 impl From<JsValue> for Error {
@@ -31,6 +34,19 @@ impl From<serde_json::Error> for Error {
         Error::JsonError(err.to_string())
     }
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::JsError(e) => write!(f, "JavaScript error: {:?}", e),
+            Error::HttpError(status, msg) => write!(f, "HTTP error {}: {}", status, msg),
+            Error::JsonError(e) => write!(f, "JSON error: {}", e),
+            Error::Aborted => write!(f, "Request was aborted"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// HTTP methods
 #[derive(Debug, Clone, Copy)]
@@ -65,6 +81,7 @@ pub struct RequestBuilder {
     headers: HashMap<String, String>,
     body: Option<String>,
     mode: RequestMode,
+    signal: Option<AbortSignal>,
 }
 
 impl RequestBuilder {
@@ -75,6 +92,7 @@ impl RequestBuilder {
             headers: HashMap::new(),
             body: None,
             mode: RequestMode::Cors,
+            signal: None,
         }
     }
 
@@ -111,6 +129,12 @@ impl RequestBuilder {
         Ok(self)
     }
 
+    /// Set an abort signal for the request
+    pub fn abort_signal(mut self, signal: AbortSignal) -> Self {
+        self.signal = Some(signal);
+        self
+    }
+
     /// Send the request and get a Response
     pub async fn send(self) -> Result<Response> {
         let opts = RequestInit::new();
@@ -119,6 +143,10 @@ impl RequestBuilder {
 
         if let Some(body) = &self.body {
             opts.set_body(&JsValue::from_str(body));
+        }
+
+        if let Some(signal) = &self.signal {
+            opts.set_signal(Some(signal));
         }
 
         let request = WebRequest::new_with_str_and_init(&self.url, &opts)?;
@@ -131,7 +159,17 @@ impl RequestBuilder {
         let window = web_sys::window()
             .ok_or_else(|| Error::JsError(JsValue::from_str("Failed to get window")))?;
 
-        let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|e| {
+                // Check if this is an abort error
+                if let Some(error) = e.dyn_ref::<js_sys::Error>() {
+                    if error.name() == "AbortError" {
+                        return Error::Aborted;
+                    }
+                }
+                Error::JsError(e)
+            })?;
         let web_response: WebResponse = resp_value
             .dyn_into()
             .map_err(|_| Error::JsError(JsValue::from_str("Response conversion failed")))?;
