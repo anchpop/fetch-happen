@@ -8,6 +8,10 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+examples = []
+
 [dependencies]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
@@ -27,4 +31,6 @@ features = [
   "console",
   "AbortController",
   "AbortSignal",
+  "ReadableStream",
+  "ReadableStreamDefaultReader",
 ]

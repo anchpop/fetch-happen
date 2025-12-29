@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>fetch-happen Streaming Examples</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px 10px 10px 0;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0051D5;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .console-note {
+            color: #666;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+        .loading {
+            display: inline-block;
+            margin-left: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>fetch-happen Streaming Examples</h1>
+
+        <div class="info">
+            <strong>Note:</strong> Open your browser's Developer Tools (F12) and check the Console tab to see the streaming output.
+        </div>
+
+        <h2>Examples</h2>
+
+        <div>
+            <button id="btn1" onclick="runExample1()">
+                Stream Large File (chunks)
+            </button>
+            <span id="loading1" class="loading" style="display:none;">Running...</span>
+            <p style="color: #666; margin: 5px 0 0 0;">Downloads a large file and logs each chunk received</p>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button id="btn2" onclick="runExample2()">
+                Stream Text Content (line-by-line)
+            </button>
+            <span id="loading2" class="loading" style="display:none;">Running...</span>
+            <p style="color: #666; margin: 5px 0 0 0;">Processes a JSONL file line by line as it streams</p>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button id="btn3" onclick="runExample3()">
+                Download with Progress
+            </button>
+            <span id="loading3" class="loading" style="display:none;">Running...</span>
+            <p style="color: #666; margin: 5px 0 0 0;">Downloads with progress percentage updates</p>
+        </div>
+
+        <p class="console-note">
+            💡 Tip: The console will show detailed output from each example including chunk sizes,
+            line counts, and progress updates.
+        </p>
+    </div>
+
+    <script type="module">
+        import init, { stream_large_file, stream_text_content, download_with_progress } from '../pkg/fetch_happen.js';
+
+        await init();
+
+        window.runExample1 = async function() {
+            const btn = document.getElementById('btn1');
+            const loading = document.getElementById('loading1');
+            btn.disabled = true;
+            loading.style.display = 'inline-block';
+            console.log('\n=== Running: Stream Large File ===');
+            try {
+                await stream_large_file();
+            } catch (e) {
+                console.error('Error:', e);
+            }
+            btn.disabled = false;
+            loading.style.display = 'none';
+        };
+
+        window.runExample2 = async function() {
+            const btn = document.getElementById('btn2');
+            const loading = document.getElementById('loading2');
+            btn.disabled = true;
+            loading.style.display = 'inline-block';
+            console.log('\n=== Running: Stream Text Content ===');
+            try {
+                await stream_text_content();
+            } catch (e) {
+                console.error('Error:', e);
+            }
+            btn.disabled = false;
+            loading.style.display = 'none';
+        };
+
+        window.runExample3 = async function() {
+            const btn = document.getElementById('btn3');
+            const loading = document.getElementById('loading3');
+            btn.disabled = true;
+            loading.style.display = 'inline-block';
+            console.log('\n=== Running: Download with Progress ===');
+            try {
+                await download_with_progress();
+            } catch (e) {
+                console.error('Error:', e);
+            }
+            btn.disabled = false;
+            loading.style.display = 'none';
+        };
+
+        console.log('✓ fetch-happen streaming examples loaded. Click a button to test!');
+    </script>
+</body>
+</html>
