@@ -9,7 +9,8 @@ async fn abortable_request() -> Result<String> {
     let client = Client;
 
     // Create an AbortController
-    let abort_controller = AbortController::new().map_err(|e| Error::JsError(e))?;
+    let abort_controller =
+        AbortController::new().map_err(|e| Error::Transport(format!("{e:?}")))?;
     let signal = abort_controller.signal();
 
     // Create the request with the abort signal
@@ -48,7 +49,8 @@ async fn request_with_timeout(timeout_ms: i32) -> Result<String> {
     let client = Client;
 
     // Create an AbortController
-    let abort_controller = AbortController::new().map_err(|e| Error::JsError(e))?;
+    let abort_controller =
+        AbortController::new().map_err(|e| Error::Transport(format!("{e:?}")))?;
     let signal = abort_controller.signal();
 
     // Set up timeout
@@ -62,12 +64,12 @@ async fn request_with_timeout(timeout_ms: i32) -> Result<String> {
             .bind1(&JsValue::undefined(), &abort_controller_clone),
             timeout_ms,
         )
-        .map_err(|e| Error::JsError(e))?;
+        .map_err(|e| Error::Transport(format!("{e:?}")))?;
 
     // Make the request
     let result = client
         .get("https://api.github.com/repos/rust-lang/rust/branches/master")
-        .signal(signal)
+        .abort_signal(signal)
         .send()
         .await;
 
@@ -87,23 +89,24 @@ async fn multiple_requests_with_shared_abort() -> Result<()> {
     let client = Client;
 
     // Create a single AbortController for multiple requests
-    let abort_controller = AbortController::new().map_err(|e| Error::JsError(e))?;
+    let abort_controller =
+        AbortController::new().map_err(|e| Error::Transport(format!("{e:?}")))?;
     let signal = abort_controller.signal();
 
     // Launch multiple requests with the same signal
     let request1 = client
         .get("https://api.github.com/repos/rust-lang/rust")
-        .signal(signal.clone())
+        .abort_signal(signal.clone())
         .send();
 
     let request2 = client
         .get("https://api.github.com/repos/rust-lang/cargo")
-        .signal(signal.clone())
+        .abort_signal(signal.clone())
         .send();
 
     let request3 = client
         .get("https://api.github.com/repos/rust-lang/rustup")
-        .signal(signal)
+        .abort_signal(signal)
         .send();
 
     // If we abort, all three requests will be cancelled
@@ -115,9 +118,7 @@ async fn multiple_requests_with_shared_abort() -> Result<()> {
     // Handle results
     match (result1, result2, result3) {
         (Ok(_), Ok(_), Ok(_)) => Ok(()),
-        _ => Err(Error::JsError(JsValue::from_str(
-            "One or more requests failed",
-        ))),
+        _ => Err(Error::Transport("One or more requests failed".to_string())),
     }
 }
 

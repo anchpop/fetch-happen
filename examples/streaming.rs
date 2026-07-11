@@ -46,7 +46,9 @@ pub async fn stream_large_file() {
             Ok(Some(chunk)) => {
                 total_bytes += chunk.len();
                 chunk_count += 1;
-                console::log_1(&format!("Received chunk {}: {} bytes", chunk_count, chunk.len()).into());
+                console::log_1(
+                    &format!("Received chunk {}: {} bytes", chunk_count, chunk.len()).into(),
+                );
             }
             Ok(None) => break,
             Err(e) => {
@@ -67,7 +69,12 @@ pub async fn stream_text_content() {
 
     console::log_1(&"Starting line-by-line streaming...".into());
 
-    let response = match client.get(url).send().await.and_then(|r| r.error_for_status()) {
+    let response = match client
+        .get(url)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
         Ok(r) => r,
         Err(e) => {
             console::error_1(&format!("Request failed: {}", e).into());
@@ -129,7 +136,12 @@ pub async fn download_with_progress() {
 
     console::log_1(&"Starting download with progress tracking...".into());
 
-    let response = match client.get(url).send().await.and_then(|r| r.error_for_status()) {
+    let response = match client
+        .get(url)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
         Ok(r) => r,
         Err(e) => {
             console::error_1(&format!("Request failed: {}", e).into());
@@ -179,7 +191,15 @@ pub async fn download_with_progress() {
 
             // Only log every 10%
             if progress_int >= last_logged_percent + 10 {
-                console::log_1(&format!("Progress: {:.1}% ({}/{})", progress, downloaded.len(), total).into());
+                console::log_1(
+                    &format!(
+                        "Progress: {:.1}% ({}/{})",
+                        progress,
+                        downloaded.len(),
+                        total
+                    )
+                    .into(),
+                );
                 last_logged_percent = progress_int;
             }
         }
