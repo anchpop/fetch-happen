@@ -1,14 +1,14 @@
 //! The native transport: a buffered reqwest client with the same API shape
 //! as the web transport. The whole body is read at `send()` time, so
 //! `stream_reader` yields it as a single chunk and abort signals are
-//! accepted but ignored.
-use crate::{Error, Method, Result};
+//! honoured while awaiting both headers and the buffered body.
+use crate::{AbortSignal, Error, Method, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use web_sys::{AbortSignal, RequestMode};
+use web_sys::RequestMode;
 
 impl From<reqwest::Error> for Error {
     fn from(err: reqwest::Error) -> Self {
@@ -28,6 +28,7 @@ pub struct RequestBuilder {
     method: Method,
     headers: HashMap<String, String>,
     body: Option<String>,
+    signal: Option<AbortSignal>,
 }
 
 impl RequestBuilder {
@@ -37,6 +38,7 @@ impl RequestBuilder {
             method,
             headers: HashMap::new(),
             body: None,
+            signal: None,
         }
     }
 
@@ -73,14 +75,25 @@ impl RequestBuilder {
         Ok(self)
     }
 
-    /// Set an abort signal for the request. Accepted for API parity;
-    /// ignored natively (the request is buffered and not abortable).
-    pub fn abort_signal(self, _signal: AbortSignal) -> Self {
+    /// Abort pending headers or body reads when the signal fires.
+    pub fn abort_signal(mut self, signal: impl Into<AbortSignal>) -> Self {
+        self.signal = Some(signal.into());
         self
     }
 
     /// Send the request and get a Response
-    pub async fn send(self) -> Result<Response> {
+    pub async fn send(mut self) -> Result<Response> {
+        let signal = self.signal.take();
+        match signal {
+            Some(signal) => signal
+                .until(self.send_inner())
+                .await
+                .map_err(|_| Error::Aborted)?,
+            None => self.send_inner().await,
+        }
+    }
+
+    async fn send_inner(self) -> Result<Response> {
         let method = reqwest::Method::from_bytes(self.method.as_str().as_bytes())
             .expect("Method::as_str is always a valid HTTP method");
         let mut request = client().request(method, &self.url);

@@ -1,0 +1,17 @@
+[package]
+name = "abort-signal"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Browser AbortSignal and native cooperative cancellation behind one API"
+
+[dependencies]
+futures = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio-util = { version = "0.7", features = ["rt"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["AbortSignal", "AbortController"] }
+gloo-events = "0.2"

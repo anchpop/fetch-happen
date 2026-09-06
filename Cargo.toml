@@ -13,6 +13,7 @@ default = []
 examples = []
 
 [dependencies]
+abort-signal = { path = "abort-signal" }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -25,6 +26,7 @@ reqwest = "0.13"
 
 [dev-dependencies]
 futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "time", "sync"] }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -41,3 +43,6 @@ features = [
   "ReadableStream",
   "ReadableStreamDefaultReader",
 ]
+
+[workspace]
+members = ["abort-signal"]

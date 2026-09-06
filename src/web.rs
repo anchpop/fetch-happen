@@ -1,13 +1,13 @@
 //! The wasm transport: the browser's `fetch` API via web-sys.
-use crate::{Error, Method, Result};
+use crate::{AbortSignal, Error, Method, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    AbortSignal, ReadableStream, ReadableStreamDefaultReader, Request as WebRequest, RequestInit,
-    RequestMode, Response as WebResponse,
+    ReadableStream, ReadableStreamDefaultReader, Request as WebRequest, RequestInit, RequestMode,
+    Response as WebResponse,
 };
 
 impl From<JsValue> for Error {
@@ -76,8 +76,8 @@ impl RequestBuilder {
     }
 
     /// Set an abort signal for the request
-    pub fn abort_signal(mut self, signal: AbortSignal) -> Self {
-        self.signal = Some(signal);
+    pub fn abort_signal(mut self, signal: impl Into<AbortSignal>) -> Self {
+        self.signal = Some(signal.into());
         self
     }
 
@@ -92,7 +92,7 @@ impl RequestBuilder {
         }
 
         if let Some(signal) = &self.signal {
-            opts.set_signal(Some(signal));
+            opts.set_signal(Some(signal.as_web()));
         }
 
         let request = WebRequest::new_with_str_and_init(&self.url, &opts)?;

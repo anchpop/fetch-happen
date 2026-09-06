@@ -1,0 +1,73 @@
+#![cfg(not(target_arch = "wasm32"))]
+use fetch_happen::{AbortController, Client, Error};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::oneshot,
+    time::{timeout, Duration},
+};
+
+#[tokio::test]
+async fn precancelled_request_never_connects() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let controller = AbortController::default();
+    controller.abort();
+    let result = Client
+        .get(format!("http://{}", listener.local_addr().unwrap()))
+        .abort_signal(controller.signal())
+        .send()
+        .await;
+    assert!(matches!(result, Err(Error::Aborted)));
+    assert!(timeout(Duration::from_millis(30), listener.accept())
+        .await
+        .is_err());
+}
+
+async fn interrupt(after_headers: bool) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (ready, started) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            request.push(stream.read_u8().await.unwrap());
+        }
+        if after_headers {
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\nx")
+                .await
+                .unwrap();
+        }
+        ready.send(()).unwrap();
+        let mut byte = [0];
+        // Cancelling drops reqwest's pending request/body, releasing the socket.
+        let result = timeout(Duration::from_secs(2), stream.read(&mut byte))
+            .await
+            .unwrap();
+        assert!(matches!(result, Ok(0) | Err(_)));
+    });
+    let controller = AbortController::default();
+    let request = Client.get(url).abort_signal(controller.signal()).send();
+    let cancel = async {
+        started.await.unwrap();
+        // Allow the client to consume the headers before interrupting the body case.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        controller.abort();
+    };
+    let (result, ()) = timeout(Duration::from_secs(3), async {
+        tokio::join!(request, cancel)
+    })
+    .await
+    .unwrap();
+    assert!(matches!(result, Err(Error::Aborted)));
+    server.await.unwrap();
+}
+#[tokio::test]
+async fn aborts_pending_headers() {
+    interrupt(false).await;
+}
+#[tokio::test]
+async fn aborts_pending_body() {
+    interrupt(true).await;
+}

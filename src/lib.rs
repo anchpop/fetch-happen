@@ -2,7 +2,8 @@
 //! wasm, and a buffered [`reqwest`] client natively — one API for both.
 use std::fmt;
 
-pub use web_sys::{AbortController, AbortSignal, RequestMode};
+pub use abort_signal::{AbortController, AbortSignal};
+pub use web_sys::RequestMode;
 
 #[cfg(target_arch = "wasm32")]
 mod web;
