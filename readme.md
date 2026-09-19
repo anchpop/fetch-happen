@@ -8,8 +8,9 @@ against fetch-happen runs unchanged in both places.
 
 Native caveats (the API is identical, the semantics are slightly simpler):
 
-- Responses are fully buffered at `send()` time; `stream_reader()` yields
-  the whole body as a single chunk followed by `None`.
+- `send()` resolves when the headers arrive; the body streams on demand.
+  As in the browser, a body can be consumed once (`bytes()`, `text()`,
+  `json()`, or `stream_reader()`); reading it again is an error.
 - `mode(...)` is ignored natively because CORS is a browser concept.
 - `abort_signal(...)` interrupts both pending headers and body reads.
 - `Response::stream()` is wasm-only: it returns a `web_sys::ReadableStream`,

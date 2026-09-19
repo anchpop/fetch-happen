@@ -48,7 +48,15 @@ async fn interrupt(after_headers: bool) {
         assert!(matches!(result, Ok(0) | Err(_)));
     });
     let controller = AbortController::default();
-    let request = Client.get(url).abort_signal(controller.signal()).send();
+    let request = async {
+        let response = Client
+            .get(url)
+            .abort_signal(controller.signal())
+            .send()
+            .await?;
+        // Headers arrived; the body is what stalls.
+        response.bytes().await
+    };
     let cancel = async {
         started.await.unwrap();
         // Allow the client to consume the headers before interrupting the body case.
@@ -60,7 +68,53 @@ async fn interrupt(after_headers: bool) {
     })
     .await
     .unwrap();
-    assert!(matches!(result, Err(Error::Aborted)));
+    assert!(matches!(result, Err(Error::Aborted)), "{result:?}");
+    server.await.unwrap();
+}
+
+/// `send()` must resolve on headers, and chunks must arrive as the server
+/// writes them rather than after the whole body lands.
+#[tokio::test]
+async fn body_streams_after_headers() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (release, held) = oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            request.push(stream.read_u8().await.unwrap());
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello")
+            .await
+            .unwrap();
+        held.await.unwrap();
+        stream.write_all(b"world").await.unwrap();
+    });
+    let response = timeout(Duration::from_secs(2), Client.get(url).send())
+        .await
+        .expect("send() should resolve on headers, before the body completes")
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let reader = response.stream_reader().unwrap();
+    let first = timeout(Duration::from_secs(2), reader.read_chunk())
+        .await
+        .expect("first chunk should arrive before the server sends the rest")
+        .unwrap()
+        .unwrap();
+    assert_eq!(first, b"hello");
+    release.send(()).unwrap();
+    let mut rest = Vec::new();
+    while let Some(chunk) = reader.read_chunk().await.unwrap() {
+        rest.extend(chunk);
+    }
+    assert_eq!(rest, b"world");
+    assert!(reader.read_chunk().await.unwrap().is_none());
+    assert!(
+        matches!(response.bytes().await, Err(Error::Transport(_))),
+        "a body handed to a stream reader can't be read again"
+    );
     server.await.unwrap();
 }
 #[tokio::test]

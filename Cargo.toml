@@ -1,6 +1,6 @@
 [package]
 name = "fetch-happen"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "A comfortable wrapper for the javascript 'fetch' api, with a native reqwest fallback."
 license = "MIT"
@@ -20,7 +20,7 @@ wasm-bindgen-futures = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# The native transport: same API, buffered reqwest under the hood.
+# The native transport: same API, streaming reqwest under the hood.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = "0.13"
 

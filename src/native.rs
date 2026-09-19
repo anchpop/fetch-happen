@@ -1,13 +1,13 @@
-//! The native transport: a buffered reqwest client with the same API shape
-//! as the web transport. The whole body is read at `send()` time, so
-//! `stream_reader` yields it as a single chunk and abort signals are
-//! honoured while awaiting both headers and the buffered body.
+//! The native transport: a streaming reqwest client with the same API shape
+//! as the web transport. `send()` resolves once the response headers arrive;
+//! the body is read on demand, either whole (`bytes`, `text`, `json`) or
+//! chunk by chunk (`stream_reader`), and abort signals are honoured while
+//! awaiting headers and every body read.
 use crate::{AbortSignal, Error, Method, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use web_sys::RequestMode;
 
 impl From<reqwest::Error> for Error {
@@ -81,16 +81,11 @@ impl RequestBuilder {
         self
     }
 
-    /// Send the request and get a Response
+    /// Send the request and get a Response once its headers arrive.
     pub async fn send(mut self) -> Result<Response> {
         let signal = self.signal.take();
-        match signal {
-            Some(signal) => signal
-                .until(self.send_inner())
-                .await
-                .map_err(|_| Error::Aborted)?,
-            None => self.send_inner().await,
-        }
+        let response = until(signal.as_ref(), self.send_inner()).await?;
+        Ok(Response { signal, ..response })
     }
 
     async fn send_inner(self) -> Result<Response> {
@@ -105,27 +100,60 @@ impl RequestBuilder {
         }
 
         let response = request.send().await?;
-        let status = response.status().as_u16();
-        let ok = response.status().is_success();
-        let headers = response.headers().clone();
-        let body = response.bytes().await?.to_vec();
-
         Ok(Response {
-            status,
-            ok,
-            headers,
-            body,
+            status: response.status().as_u16(),
+            ok: response.status().is_success(),
+            headers: response.headers().clone(),
+            body: Body::new(response),
+            signal: None,
         })
     }
 }
 
-/// A response from a fetch request. The body is fully buffered at `send()`
-/// time, matching the fact that reqwest consumes the response to read it.
+/// Run `future`, failing with [`Error::Aborted`] if `signal` fires first.
+async fn until<T>(
+    signal: Option<&AbortSignal>,
+    future: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    match signal {
+        Some(signal) => signal.until(future).await.map_err(|_| Error::Aborted)?,
+        None => future.await,
+    }
+}
+
+/// The unread remainder of a response body. Like the browser's, a body can
+/// be consumed once; reading it again is an error rather than empty data.
+struct Body(Mutex<Option<reqwest::Response>>);
+
+impl Body {
+    fn new(response: reqwest::Response) -> Self {
+        Self(Mutex::new(Some(response)))
+    }
+
+    fn take(&self) -> Result<reqwest::Response> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+            .ok_or_else(|| Error::Transport("body already consumed".to_string()))
+    }
+
+    fn put_back(&self, response: reqwest::Response) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(response);
+    }
+}
+
+/// A response from a fetch request. Headers are available immediately; the
+/// body streams from the socket as it is read.
 pub struct Response {
     status: u16,
     ok: bool,
     headers: reqwest::header::HeaderMap,
-    body: Vec<u8>,
+    body: Body,
+    signal: Option<AbortSignal>,
 }
 
 impl Response {
@@ -155,12 +183,12 @@ impl Response {
     /// Get the response body as text. Malformed UTF-8 is replaced rather
     /// than rejected, matching the browser's `Response.text()`.
     pub async fn text(&self) -> Result<String> {
-        Ok(String::from_utf8_lossy(&self.body).into_owned())
+        Ok(String::from_utf8_lossy(&self.bytes().await?).into_owned())
     }
 
     /// Get the response body as JSON
     pub async fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T> {
-        Ok(serde_json::from_slice(&self.body)?)
+        Ok(serde_json::from_slice(&self.bytes().await?)?)
     }
 
     /// Get the response body as a dynamic JSON value
@@ -168,9 +196,11 @@ impl Response {
         self.json().await
     }
 
-    /// Get the response body as bytes
+    /// Read the whole response body
     pub async fn bytes(&self) -> Result<Vec<u8>> {
-        Ok(self.body.clone())
+        let response = self.body.take()?;
+        let bytes = until(self.signal.as_ref(), async { Ok(response.bytes().await?) }).await?;
+        Ok(bytes.to_vec())
     }
 
     /// Ensure the response was successful, returning an error if not
@@ -184,19 +214,20 @@ impl Response {
         }
     }
 
-    /// Get a stream reader for reading chunks from the response. The body
-    /// is already buffered natively, so this yields it as a single chunk.
+    /// Get a stream reader for reading chunks from the response as they
+    /// arrive. Takes over the body, so it can't be read from `self` again.
     pub fn stream_reader(&self) -> Result<StreamReader> {
         Ok(StreamReader {
-            body: RefCell::new(Some(self.body.clone())),
+            body: Body::new(self.body.take()?),
+            signal: self.signal.clone(),
         })
     }
 }
 
-/// A reader for streaming response bodies chunk by chunk. Natively the body
-/// is buffered, so the whole body arrives as one chunk followed by None.
+/// A reader for streaming response bodies chunk by chunk
 pub struct StreamReader {
-    body: RefCell<Option<Vec<u8>>>,
+    body: Body,
+    signal: Option<AbortSignal>,
 }
 
 impl StreamReader {
@@ -204,10 +235,14 @@ impl StreamReader {
     /// Returns Ok(Some(bytes)) if a chunk is available
     /// Returns Ok(None) if the stream is finished
     pub async fn read_chunk(&self) -> Result<Option<Vec<u8>>> {
-        Ok(self.body.borrow_mut().take())
+        let mut response = self.body.take()?;
+        let chunk = until(self.signal.as_ref(), async { Ok(response.chunk().await?) }).await?;
+        // Kept after the end too, so reading past it stays `None` as in the browser.
+        self.body.put_back(response);
+        Ok(chunk.map(|chunk| chunk.to_vec()))
     }
 
-    /// Release the reader lock
+    /// Release the reader; the connection is dropped with it.
     pub fn cancel(self) -> Result<()> {
         Ok(())
     }
