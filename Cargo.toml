@@ -4,6 +4,8 @@ version = "0.5.0"
 edition = "2021"
 description = "A comfortable wrapper for the javascript 'fetch' api, with a native reqwest fallback."
 license = "MIT"
+repository = "https://github.com/anchpop/fetch-happen"
+readme = "readme.md"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -13,7 +15,7 @@ default = []
 examples = []
 
 [dependencies]
-abort-signal = { path = "abort-signal" }
+abort-signal = { version = "0.1.0", path = "abort-signal" }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

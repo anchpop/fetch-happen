@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Browser AbortSignal and native cooperative cancellation behind one API"
+repository = "https://github.com/anchpop/fetch-happen"
 
 [dependencies]
 futures = "0.3"
