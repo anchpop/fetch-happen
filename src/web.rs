@@ -102,20 +102,27 @@ impl RequestBuilder {
             headers.set(key, value)?;
         }
 
-        let window = web_sys::window()
-            .ok_or_else(|| Error::Transport("Failed to get window".to_string()))?;
+        // Main thread or Web Worker: fetch lives on whichever global this is.
+        let global = js_sys::global();
+        let promise = if let Some(window) = global.dyn_ref::<web_sys::Window>() {
+            window.fetch_with_request(&request)
+        } else if let Some(worker) = global.dyn_ref::<web_sys::WorkerGlobalScope>() {
+            worker.fetch_with_request(&request)
+        } else {
+            return Err(Error::Transport(
+                "No window or worker global scope".to_string(),
+            ));
+        };
 
-        let resp_value = JsFuture::from(window.fetch_with_request(&request))
-            .await
-            .map_err(|e| {
-                // Check if this is an abort error
-                if let Some(error) = e.dyn_ref::<js_sys::Error>() {
-                    if error.name() == "AbortError" {
-                        return Error::Aborted;
-                    }
+        let resp_value = JsFuture::from(promise).await.map_err(|e| {
+            // Check if this is an abort error
+            if let Some(error) = e.dyn_ref::<js_sys::Error>() {
+                if error.name() == "AbortError" {
+                    return Error::Aborted;
                 }
-                js_error(e)
-            })?;
+            }
+            js_error(e)
+        })?;
         let web_response: WebResponse = resp_value
             .dyn_into()
             .map_err(|_| Error::Transport("Response conversion failed".to_string()))?;

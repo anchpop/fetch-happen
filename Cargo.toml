@@ -1,6 +1,6 @@
 [package]
 name = "fetch-happen"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "A comfortable wrapper for the javascript 'fetch' api, with a native reqwest fallback."
 license = "MIT"
@@ -39,6 +39,7 @@ features = [
   "RequestMode",
   "Response",
   "Window",
+  "WorkerGlobalScope",
   "console",
   "AbortController",
   "AbortSignal",
